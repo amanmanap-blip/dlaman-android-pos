@@ -1,0 +1,1 @@
+Native bridge name: window.DLamanPrinter. printJob(JSON {text,drawer}). Drawer is only requested by the app after a successful first CASH payment server response. Browser demo does not include native bridge. Web assets in server public/index.html must be deployed as well.
