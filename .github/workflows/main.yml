@@ -1,0 +1,10 @@
+
+- name: Build Debug APK
+  working-directory: ./dlaman-android-pos
+  run: |
+    if [ -f "./gradlew" ]; then
+      chmod +x ./gradlew
+      ./gradlew assembleDebug --stacktrace
+    else
+      gradle assembleDebug --stacktrace
+    fi
