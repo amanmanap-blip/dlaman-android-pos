@@ -40,3 +40,22 @@ The supplied d’Laman emblem is now the app launcher icon. This package include
 
 ## Updated official logo (20 October 2026)
 The launcher icons were generated from the exact d’Laman logo provided by the restaurant. Android adaptive and standard launcher sizes are included.
+
+
+## v2.2 Cash drawer fix
+- Standalone/local confirmed CASH checkouts now send the POS58B ESC/POS drawer pulse with the customer receipt, provided there is a positive amount due. Previously a condition incorrectly restricted this to online mode.
+- Added **Buka Laci** directly below **BT Printer**; manual opening requires an on-device confirmation and uses the selected printer.
+- Card / QR receipts, kitchen/drinks slips and reprints never send a drawer pulse.
+- The printer writes ESC p (drawer pin 0) then waits 350ms before closing the Bluetooth socket. The pinout and pulse support must be validated with your actual drawer and POS58B.
+- Manual access is not associated with a sale and requires staff confirmation. Restrict access to the tablet accordingly.
+
+**Build**: GitHub Actions → Build dLaman Standalone APK → Run workflow. This ZIP contains source, not a precompiled APK.
+
+## v2.3 — Close Shop & payment breakdown
+- Android top bar: BT Printer | Buka Laci | CLOSE SHOP, side by side. Once closed, button shows OPEN SHOP.
+- Closing blocked if any original bill remains UNPAID, including orders with additional rounds. You may reopen using OPEN SHOP.
+- Close state persists across app restarts (local storage and local Android business-data cache).
+- While closed, both fresh orders and additional rounds are blocked, including at the save-order handler.
+- Mark Paid sets all associated Dapur and Minuman preparation rounds to `siap` / Sudah Siap, except station entries with no relevant items.
+- Sales KPIs separate Paid collection by Cash, Card, QR for the selected date filter. Historical Paid orders missing a payment method are counted in the Paid overall total but not assigned a payment type.
+- Standalone-only; physical Bluetooth printing and drawer checks must be done on the target POS58B tablet.

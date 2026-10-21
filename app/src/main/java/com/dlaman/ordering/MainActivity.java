@@ -67,7 +67,7 @@ public class MainActivity extends Activity {
     try{job=new org.json.JSONObject(payloadJson);}catch(Exception e){status("Format cetakan tidak sah.");return;}
     final String text=job.optString("text","");
     final boolean drawer=job.optBoolean("drawer",false);
-    if(text.isEmpty()||text.length()>15000){status("Resit kosong atau terlalu panjang.");return;}
+    if((text.isEmpty()&&!drawer)||text.length()>15000){status("Resit kosong atau terlalu panjang.");return;}
     if(printerMac.isEmpty()){status("Pilih printer Bluetooth dahulu (ikon BT di header).");return;}
     if(!hasBluetoothPermission()){askBluetoothPermission();return;}
     // Only one printer operation at a time; avoids interleaving cash drawer and print jobs.
@@ -82,17 +82,18 @@ public class MainActivity extends Activity {
         socket.connect();
         OutputStream out=socket.getOutputStream();
         out.write(new byte[]{0x1b,0x40}); // ESC @ initialise
-        out.write(new byte[]{0x1b,0x61,0}); // left aligned
+        if(!text.isEmpty())out.write(new byte[]{0x1b,0x61,0}); // left aligned
         String clean=text.replace('’',(char)39).replace('–','-').replace('×','x').replace('✓',' ').replace('−','-');
         // Uses standard single-byte ESC/POS text. Unsupported glyphs are replaced.
-        out.write(clean.getBytes(Charset.forName("windows-1252")));
-        out.write(new byte[]{0x0a,0x0a,0x0a});
+        if(!clean.isEmpty()){out.write(clean.getBytes(Charset.forName("windows-1252")));
+        out.write(new byte[]{0x0a,0x0a,0x0a});}
         if(drawer){
           // ESC p m t1 t2. Only called following newly confirmed CASH payment.
           out.write(new byte[]{0x1b,0x70,0x00,0x32,0x32});
         }
         out.flush();
-        status(drawer?"Resit dihantar; arahan buka laci dihantar (Cash sahaja).":"Cetakan dihantar ke POS58B.");
+        if(drawer)Thread.sleep(350); // let the printer process the drawer pulse before closing Bluetooth
+        status(drawer?(text.isEmpty()?"Arahan buka laci dihantar ke POS58B.":"Resit dan arahan buka laci dihantar."):"Cetakan dihantar ke POS58B.");
       }catch(Exception e){status("Cetakan Bluetooth gagal: "+e.getMessage()+". Semak pairing / bateri / printer.");}
       finally{try{if(socket!=null)socket.close();}catch(Exception ignored){} synchronized(btLock){printerBusy=false;}}
     }).start();
@@ -102,15 +103,40 @@ public class MainActivity extends Activity {
     @JavascriptInterface public boolean isAvailable(){return !printerMac.isEmpty();}
   }
 
+  private void manualOpenDrawer(){
+    if(printerMac.isEmpty()){status("Pilih POS58B menggunakan BT Printer dahulu.");return;}
+    new AlertDialog.Builder(this).setTitle("Buka Laci Tunai")
+      .setMessage("Hantar arahan buka laci tunai melalui POS58B? Gunakan untuk akses tunai oleh staf sahaja.")
+      .setNegativeButton("Batal",null)
+      .setPositiveButton("Buka Laci",(dialog,which)->sendPrinter("{\"text\":\"\",\"drawer\":true}"))
+      .show();
+  }
+
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
     LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL);
     layout.setBackgroundColor(Color.rgb(247,245,239));
-    LinearLayout top = new LinearLayout(this); top.setPadding(18,12,18,12); top.setGravity(Gravity.CENTER_VERTICAL); top.setBackgroundColor(Color.rgb(32,59,49));
-    TextView name = new TextView(this); name.setText("d’Laman · Sistem Pesanan"); name.setTextColor(Color.WHITE); name.setTextSize(17); name.setLayoutParams(new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
+    LinearLayout top = new LinearLayout(this); top.setPadding(8,10,8,10); top.setGravity(Gravity.CENTER_VERTICAL); top.setBackgroundColor(Color.rgb(32,59,49));
+    TextView name = new TextView(this); name.setText("d’Laman"); name.setTextColor(Color.WHITE); name.setTextSize(16); name.setLayoutParams(new LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1));
     
-    TextView bluetooth = new TextView(this);bluetooth.setText("▣ BT Printer");bluetooth.setTextColor(Color.WHITE);bluetooth.setPadding(12,12,12,12);bluetooth.setOnClickListener(v->choosePrinter());
-    top.addView(name);top.addView(bluetooth);
+    LinearLayout controls = new LinearLayout(this);
+    controls.setOrientation(LinearLayout.HORIZONTAL);
+    controls.setGravity(Gravity.CENTER_VERTICAL);
+    TextView bluetooth=new TextView(this);
+    bluetooth.setText("BT Printer");bluetooth.setTextColor(Color.WHITE);
+    bluetooth.setPadding(8,12,8,12);bluetooth.setOnClickListener(v->choosePrinter());
+    TextView drawerButton=new TextView(this);
+    drawerButton.setText("Buka Laci");drawerButton.setTextColor(Color.WHITE);
+    drawerButton.setPadding(8,12,8,12);drawerButton.setOnClickListener(v->manualOpenDrawer());
+    TextView closeButton=new TextView(this);
+    closeButton.setText("CLOSE SHOP");closeButton.setTextColor(Color.WHITE);
+    closeButton.setPadding(8,12,8,12);
+    closeButton.setOnClickListener(v->web.evaluateJavascript("toggleShop()", result -> {
+      if("\"closed\"".equals(result))closeButton.setText("OPEN SHOP");
+      else if("\"open\"".equals(result))closeButton.setText("CLOSE SHOP");
+    }));
+    controls.addView(bluetooth);controls.addView(drawerButton);controls.addView(closeButton);
+    top.addView(name);top.addView(controls);
     layout.addView(top);
     progress = new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);progress.setMax(100);progress.setVisibility(View.GONE);layout.addView(progress,new LinearLayout.LayoutParams(-1,5));
     web = new WebView(this); web.setBackgroundColor(Color.WHITE); layout.addView(web,new LinearLayout.LayoutParams(-1,0,1));
@@ -123,6 +149,7 @@ public class MainActivity extends Activity {
     web.setWebChromeClient(new WebChromeClient(){@Override public void onProgressChanged(WebView w,int value){progress.setProgress(value);progress.setVisibility(value>=100?View.GONE:View.VISIBLE);}});
     web.setWebViewClient(new WebViewClient(){
       @Override public void onPageFinished(WebView view,String url){
+        view.evaluateJavascript("localStorage.getItem('dlaman_shop_closed')", result -> closeButton.setText(result.contains("true")?"OPEN SHOP":"CLOSE SHOP"));
         java.io.File cache=new java.io.File(getFilesDir(),"business-data.json");
         if(cache.exists())try{
           String json=new String(java.nio.file.Files.readAllBytes(cache.toPath()),java.nio.charset.StandardCharsets.UTF_8);
